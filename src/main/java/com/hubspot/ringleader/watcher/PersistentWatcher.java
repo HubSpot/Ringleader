@@ -103,6 +103,7 @@ public class PersistentWatcher implements Closeable {
     if (started.compareAndSet(true, false)) {
       cleanup(curatorReference.getAndSet(null));
       listeners.clear();
+      executor.shutdown();
     }
   }
 
@@ -232,15 +233,21 @@ public class PersistentWatcher implements Closeable {
     }
   }
 
-  private void cleanup(CuratorFramework curator) {
+  private void cleanup(final CuratorFramework curator) {
     if (curator == null) {
       return;
     }
 
-    try {
-      curator.close();
-    } catch (Exception e) {
-      LOG.debug("Error closing curator", e);
-    }
+    executor.submit(new Runnable() {
+
+      //@Override Java 5 compatibility
+      public void run() {
+        try {
+          curator.close();
+        } catch (Exception e) {
+          LOG.debug("Error closing curator", e);
+        }
+      }
+    });
   }
 }
