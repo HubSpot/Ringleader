@@ -62,7 +62,6 @@ public class PersistentWatcher implements Closeable {
 
       //@Override Java 5 compatibility
       public void process(WatchedEvent event) throws Exception {
-        System.out.println("RECEIVED EVENT: " + event.getType());
         switch (event.getType()) {
           case NodeDeleted:
             lastVersion.set(-1);
