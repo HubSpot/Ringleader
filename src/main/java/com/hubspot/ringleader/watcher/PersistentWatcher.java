@@ -140,7 +140,9 @@ public class PersistentWatcher implements Closeable {
                       }
                       break;
                     case NONODE:
-                      // nothing to do
+                      if (lastVersion.getAndSet(-1) != -1) {
+                        notifyListeners(Event.nodeDeleted());
+                      }
                       break;
                     default:
                       LOG.error("Error fetching data, replacing client", KeeperException.create(code, event.getPath()));
