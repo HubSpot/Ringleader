@@ -155,12 +155,18 @@ public class PersistentWatcher implements Closeable {
   }
 
   private void notifyListeners(final Event event) {
-    listeners.forEach(new Function<EventListener, Void>() {
+    executor.submit(new Runnable() {
 
       //@Override Java 5 compatibility
-      public Void apply(EventListener listener) {
-        listener.newEvent(event);
-        return null;
+      public void run() {
+        listeners.forEach(new Function<EventListener, Void>() {
+
+          //@Override Java 5 compatibility
+          public Void apply(EventListener listener) {
+            listener.newEvent(event);
+            return null;
+          }
+        });
       }
     });
   }
