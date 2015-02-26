@@ -70,7 +70,7 @@ public class PersistentWatcher implements Closeable {
             lastVersion.set(-1);
             notifyListeners(Event.nodeDeleted());
           default:
-            fetch(true);
+            fetch(false);
         }
       }
     };
@@ -85,7 +85,7 @@ public class PersistentWatcher implements Closeable {
         //@Override Java 5 compatibility
         public void run() {
           try {
-            fetch(false);
+            fetch(true);
           } finally {
             executor.schedule(this, 1, TimeUnit.MINUTES);
           }
@@ -106,7 +106,7 @@ public class PersistentWatcher implements Closeable {
     }
   }
 
-  private synchronized void fetch(final boolean fromWatcher) {
+  private synchronized void fetch(final boolean backgroundFetch) {
     try {
       CuratorFramework curator = curatorReference.get();
       if (curator == null) {
@@ -133,7 +133,7 @@ public class PersistentWatcher implements Closeable {
                       if (version != previousVersion) {
                         notifyListeners(Event.nodeUpdated(stat, data));
 
-                        if (previousVersion != -1 && !fromWatcher) {
+                        if (previousVersion != -1 && backgroundFetch) {
                           LOG.error("Watcher stopped firing, replacing client");
                           replaceCurator();
                         }
@@ -188,7 +188,7 @@ public class PersistentWatcher implements Closeable {
       public void run() {
         CuratorFramework previous = curatorReference.getAndSet(newCurator());
         cleanup(previous);
-        fetch(true);
+        fetch(false);
       }
     });
   }
