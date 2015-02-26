@@ -1,4 +1,4 @@
-package com.hubspot.ringleader;
+package com.hubspot.ringleader.watcher;
 
 import org.apache.zookeeper.data.Stat;
 

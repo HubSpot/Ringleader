@@ -1,4 +1,4 @@
-package com.hubspot.ringleader;
+package com.hubspot.ringleader.watcher;
 
 import com.google.common.base.Supplier;
 import com.netflix.curator.framework.CuratorFramework;
