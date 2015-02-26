@@ -103,6 +103,7 @@ public class PersistentWatcher implements Closeable {
     if (started.compareAndSet(true, false)) {
       cleanup(curatorReference.getAndSet(null));
       listeners.clear();
+      lastVersion.set(-1);
       executor.shutdown();
     }
   }
