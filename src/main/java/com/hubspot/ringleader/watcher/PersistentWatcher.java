@@ -46,7 +46,7 @@ public class PersistentWatcher implements Closeable {
   PersistentWatcher(Supplier<CuratorFramework> curatorSupplier, final String path) {
     this.curatorSupplier = curatorSupplier;
     this.curatorReference = new AtomicReference<CuratorFramework>();
-    this.curatorTimestamp = new AtomicLong();
+    this.curatorTimestamp = new AtomicLong(0);
     this.lastVersion = new AtomicInteger(-1);
     this.started = new AtomicBoolean();
     this.path = path;
@@ -87,7 +87,7 @@ public class PersistentWatcher implements Closeable {
           try {
             fetch(true);
           } finally {
-            executor.schedule(this, 1, TimeUnit.MINUTES);
+            executor.schedule(this, 10, TimeUnit.MINUTES);
           }
         }
       });
@@ -104,6 +104,7 @@ public class PersistentWatcher implements Closeable {
       cleanup(curatorReference.getAndSet(null));
       listeners.clear();
       lastVersion.set(-1);
+      curatorTimestamp.set(0);
       executor.shutdown();
     }
   }
