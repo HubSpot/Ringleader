@@ -188,6 +188,7 @@ public class PersistentWatcher implements Closeable {
       public void run() {
         CuratorFramework previous = curatorReference.getAndSet(newCurator());
         cleanup(previous);
+        fetch(true);
       }
     });
   }
