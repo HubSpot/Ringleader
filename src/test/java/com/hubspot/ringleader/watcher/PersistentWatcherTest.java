@@ -2,10 +2,10 @@ package com.hubspot.ringleader.watcher;
 
 import com.google.common.base.Supplier;
 import com.hubspot.ringleader.watcher.Event.Type;
-import com.netflix.curator.framework.CuratorFramework;
-import com.netflix.curator.framework.CuratorFrameworkFactory;
-import com.netflix.curator.retry.ExponentialBackoffRetry;
-import com.netflix.curator.test.TestingServer;
+import org.apache.curator.framework.CuratorFramework;
+import org.apache.curator.framework.CuratorFrameworkFactory;
+import org.apache.curator.retry.ExponentialBackoffRetry;
+import org.apache.curator.test.TestingServer;
 import org.apache.zookeeper.KeeperException.NoNodeException;
 import org.junit.After;
 import org.junit.AfterClass;
@@ -49,22 +49,14 @@ public class PersistentWatcherTest {
       }
     };
 
-    watcher = new WatcherFactory(curatorSupplier).dataWatcher(PATH);
-
     events = new CopyOnWriteArrayList<Event>();
-    watcher.getEventListenable().addListener(new EventListener() {
-
-      //@Override Java 5 compatibility
-      public void newEvent(Event event) {
-        events.add(event);
-      }
-    });
+    watcher = newWatcher(curatorSupplier);
   }
 
   @After
   public void cleanup() throws IOException {
-    deleteData();
     watcher.close();
+    deleteData();
   }
 
   @AfterClass
@@ -85,8 +77,7 @@ public class PersistentWatcherTest {
   @Test
   public void itReplacesBadCurator() {
     final AtomicBoolean exceptionThrown = new AtomicBoolean();
-    final Supplier<CuratorFramework> previous = curatorSupplier;
-    curatorSupplier = new Supplier<CuratorFramework>() {
+    Supplier<CuratorFramework> exceptionSupplier = new Supplier<CuratorFramework>() {
 
       //@Override Java 5 compatibility
       public CuratorFramework get() {
@@ -94,11 +85,12 @@ public class PersistentWatcherTest {
           exceptionThrown.set(true);
           throw new RuntimeException();
         } else {
-          return previous.get();
+          return curatorSupplier.get();
         }
       }
     };
 
+    watcher = newWatcher(exceptionSupplier);
     watcher.start();
 
     waitForEvents();
@@ -149,6 +141,20 @@ public class PersistentWatcherTest {
     assertThat(events.get(1).getType()).isEqualTo(Type.NODE_DELETED);
     assertThat(events.get(1).getStat()).isNull();
     assertThat(events.get(1).getData()).isNull();
+  }
+
+  private PersistentWatcher newWatcher(Supplier<CuratorFramework> curatorSupplier) {
+    PersistentWatcher watcher = new WatcherFactory(curatorSupplier).dataWatcher(PATH);
+
+    watcher.getEventListenable().addListener(new EventListener() {
+
+      //@Override Java 5 compatibility
+      public void newEvent(Event event) {
+        events.add(event);
+      }
+    });
+
+    return watcher;
   }
 
   private CuratorFramework newCurator() {

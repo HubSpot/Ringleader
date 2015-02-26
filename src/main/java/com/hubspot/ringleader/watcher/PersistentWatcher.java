@@ -2,18 +2,19 @@ package com.hubspot.ringleader.watcher;
 
 import com.google.common.base.Function;
 import com.google.common.base.Supplier;
-import com.netflix.curator.framework.CuratorFramework;
-import com.netflix.curator.framework.api.BackgroundCallback;
-import com.netflix.curator.framework.api.CuratorEvent;
-import com.netflix.curator.framework.api.CuratorWatcher;
-import com.netflix.curator.framework.api.UnhandledErrorListener;
-import com.netflix.curator.framework.imps.CuratorFrameworkState;
-import com.netflix.curator.framework.listen.Listenable;
-import com.netflix.curator.framework.listen.ListenerContainer;
-import com.netflix.curator.framework.state.ConnectionState;
-import com.netflix.curator.framework.state.ConnectionStateListener;
+import org.apache.curator.framework.CuratorFramework;
+import org.apache.curator.framework.api.BackgroundCallback;
+import org.apache.curator.framework.api.CuratorEvent;
+import org.apache.curator.framework.api.CuratorWatcher;
+import org.apache.curator.framework.api.UnhandledErrorListener;
+import org.apache.curator.framework.imps.CuratorFrameworkState;
+import org.apache.curator.framework.listen.Listenable;
+import org.apache.curator.framework.listen.ListenerContainer;
+import org.apache.curator.framework.state.ConnectionState;
+import org.apache.curator.framework.state.ConnectionStateListener;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.KeeperException.Code;
+import org.apache.zookeeper.KeeperException.NoNodeException;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
@@ -65,6 +66,7 @@ public class PersistentWatcher implements Closeable {
 
       //@Override Java 5 compatibility
       public void process(WatchedEvent event) throws Exception {
+        System.out.println("RECEIVED EVENT: " + event.getType());
         switch (event.getType()) {
           case NodeDeleted:
             lastVersion.set(-1);
@@ -118,42 +120,27 @@ public class PersistentWatcher implements Closeable {
         return;
       }
 
-      curator.getData()
+      Stat stat = new Stat();
+      byte[] data = curator.getData()
+              .storingStatIn(stat)
               .usingWatcher(watcher)
-              .inBackground(new BackgroundCallback() {
-
-                //@Override Java 5 compatibility
-                public void processResult(CuratorFramework client, CuratorEvent event) throws Exception {
-                  Code code = Code.get(event.getResultCode());
-
-                  switch (code) {
-                    case OK:
-                      Stat stat = event.getStat();
-                      byte[] data = event.getData();
-
-                      int version = stat.getVersion();
-                      int previousVersion = lastVersion.getAndSet(version);
-                      if (version != previousVersion) {
-                        notifyListeners(Event.nodeUpdated(stat, data));
-
-                        if (previousVersion != -1 && backgroundFetch) {
-                          LOG.error("Watcher stopped firing, replacing client");
-                          replaceCurator();
-                        }
-                      }
-                      break;
-                    case NONODE:
-                      if (lastVersion.getAndSet(-1) != -1) {
-                        notifyListeners(Event.nodeDeleted());
-                      }
-                      break;
-                    default:
-                      LOG.error("Error fetching data, replacing client", KeeperException.create(code, event.getPath()));
-                      replaceCurator();
-                  }
-                }
-              }, executor)
               .forPath(path);
+
+      int version = stat.getVersion();
+      int previousVersion = lastVersion.getAndSet(version);
+      if (version != previousVersion) {
+        notifyListeners(Event.nodeUpdated(stat, data));
+
+        if (previousVersion != -1 && backgroundFetch) {
+          LOG.error("Watcher stopped firing, replacing client");
+          replaceCurator();
+        }
+      }
+    } catch (NoNodeException e) {
+      LOG.debug("No node exists for path {}", path);
+      if (lastVersion.getAndSet(-1) != -1) {
+        notifyListeners(Event.nodeDeleted());
+      }
     } catch (Exception e) {
       LOG.error("Error fetching data, replacing client", e);
       replaceCurator();
@@ -230,6 +217,7 @@ public class PersistentWatcher implements Closeable {
 
       return curator;
     } catch (Exception e) {
+      LOG.error("Error creating curator", e);
       cleanup(curator);
       return null;
     }

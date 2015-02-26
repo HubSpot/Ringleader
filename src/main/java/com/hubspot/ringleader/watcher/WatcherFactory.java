@@ -1,7 +1,7 @@
 package com.hubspot.ringleader.watcher;
 
 import com.google.common.base.Supplier;
-import com.netflix.curator.framework.CuratorFramework;
+import org.apache.curator.framework.CuratorFramework;
 
 public class WatcherFactory {
   private final Supplier<CuratorFramework> curatorSupplier;
