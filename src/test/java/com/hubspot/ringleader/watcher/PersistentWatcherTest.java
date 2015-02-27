@@ -245,10 +245,17 @@ public class PersistentWatcherTest {
   }
 
   private void waitForEvents() {
-    try {
-      Thread.sleep(10);
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
+    int size = events.size();
+    for (int i = 0; i < 10; i++) {
+      try {
+        Thread.sleep(10);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+
+      if (events.size() > size) {
+        break;
+      }
     }
   }
 }
