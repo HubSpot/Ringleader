@@ -143,9 +143,50 @@ public class PersistentWatcherTest {
     assertThat(events.get(1).getData()).isNull();
   }
 
+  @Test
+  public void blockingWatcherBlocksUntilTheFirstEventIsSent() {
+    final AtomicBoolean exceptionThrown = new AtomicBoolean();
+    Supplier<CuratorFramework> delayedSupplier = new Supplier<CuratorFramework>() {
+
+      //@Override Java 5 compatibility
+      public CuratorFramework get() {
+        if (!exceptionThrown.get()) {
+          exceptionThrown.set(true);
+          throw new RuntimeException();
+        } else {
+          try {
+            Thread.sleep(50);
+          } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+          }
+          return curatorSupplier.get();
+        }
+      }
+    };
+
+    watcher = newBlockingWatcher(delayedSupplier);
+    watcher.start();
+
+    assertThat(curatorCounter.get()).isEqualTo(1);
+    assertThat(events).hasSize(1);
+    assertThat(events.get(0).getType()).isEqualTo(Type.NODE_UPDATED);
+    assertThat(events.get(0).getStat().getVersion()).isEqualTo(0);
+    assertThat(events.get(0).getData()).isEqualTo("0".getBytes());
+  }
+
   private PersistentWatcher newWatcher(Supplier<CuratorFramework> curatorSupplier) {
     PersistentWatcher watcher = new WatcherFactory(curatorSupplier).dataWatcher(PATH);
+    addListener(watcher);
+    return watcher;
+  }
 
+  private PersistentWatcher newBlockingWatcher(Supplier<CuratorFramework> curatorSupplier) {
+    PersistentWatcher watcher = new WatcherFactory(curatorSupplier).blockingDataWatcher(PATH);
+    addListener(watcher);
+    return watcher;
+  }
+
+  private void addListener(PersistentWatcher watcher) {
     watcher.getEventListenable().addListener(new EventListener() {
 
       //@Override Java 5 compatibility
@@ -153,8 +194,6 @@ public class PersistentWatcherTest {
         events.add(event);
       }
     });
-
-    return watcher;
   }
 
   private CuratorFramework newCurator() {
