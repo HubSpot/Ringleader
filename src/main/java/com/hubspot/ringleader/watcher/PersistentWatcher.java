@@ -229,20 +229,24 @@ public class PersistentWatcher implements Closeable {
       //@Override Java 5 compatibility
       public void run() {
         try {
-          try {
-            curator.close();
-          } catch (UnsupportedOperationException e) {
+          close(curator);
+        } catch (Exception e) {
+          LOG.debug("Error closing curator", e);
+        }
+      }
+
+      private void close(CuratorFramework curator) throws Exception {
+        try {
+          curator.close();
+        } catch (UnsupportedOperationException e) {
             /*
             NamespaceFacade throws UnsupportedOperationException when you try to close it
             Need to resort to reflection to access real CuratorFramework instance so we can close it
              */
-            Field curatorField = curator.getClass().getDeclaredField("client");
-            curatorField.setAccessible(true);
+          Field curatorField = curator.getClass().getDeclaredField("client");
+          curatorField.setAccessible(true);
 
-            ((CuratorFramework) curatorField.get(curator)).close();
-          }
-        } catch (Exception e) {
-          LOG.debug("Error closing curator", e);
+          close((CuratorFramework) curatorField.get(curator));
         }
       }
     });
