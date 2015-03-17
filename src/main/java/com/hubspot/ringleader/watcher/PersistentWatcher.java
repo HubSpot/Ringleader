@@ -18,6 +18,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
@@ -228,7 +229,18 @@ public class PersistentWatcher implements Closeable {
       //@Override Java 5 compatibility
       public void run() {
         try {
-          curator.close();
+          try {
+            curator.close();
+          } catch (UnsupportedOperationException e) {
+            /*
+            NamespaceFacade throws UnsupportedOperationException when you try to close it
+            Need to resort to reflection to access real CuratorFramework instance so we can close it
+             */
+            Field curatorField = curator.getClass().getDeclaredField("client");
+            curatorField.setAccessible(true);
+
+            ((CuratorFramework) curatorField.get(curator)).close();
+          }
         } catch (Exception e) {
           LOG.debug("Error closing curator", e);
         }
