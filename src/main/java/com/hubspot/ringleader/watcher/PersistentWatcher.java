@@ -67,6 +67,7 @@ public class PersistentWatcher implements Closeable {
           case NodeDeleted:
             lastVersion.set(-1);
             notifyListeners(Event.nodeDeleted());
+            break;
           default:
             fetch(false);
         }
@@ -198,6 +199,9 @@ public class PersistentWatcher implements Closeable {
             case LOST:
               LOG.error("Connection lost or suspended, replacing client");
               replaceCurator();
+              break;
+            default:
+              // make findbugs happy
           }
         }
       });
