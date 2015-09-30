@@ -76,6 +76,10 @@ public class PersistentWatcher implements Closeable {
     this.listeners = new ListenerContainer<EventListener>();
   }
 
+  public AtomicReference<CuratorFramework> getCuratorReference() {
+    return curatorReference;
+  }
+
   public void start() {
     if (started.compareAndSet(false, true)) {
       curatorReference.set(newCurator());
