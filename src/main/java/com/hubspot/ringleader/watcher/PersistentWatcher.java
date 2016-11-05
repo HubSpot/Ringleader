@@ -36,6 +36,7 @@ public class PersistentWatcher implements Closeable {
   private final AtomicLong curatorTimestamp;
   private final AtomicInteger lastVersion;
   private final AtomicBoolean started;
+  private final AtomicBoolean closed;
   private final String path;
   private final ScheduledExecutorService executor;
   private final CuratorWatcher watcher;
@@ -47,6 +48,7 @@ public class PersistentWatcher implements Closeable {
     this.curatorTimestamp = new AtomicLong(0);
     this.lastVersion = new AtomicInteger(-1);
     this.started = new AtomicBoolean();
+    this.closed = new AtomicBoolean();
     this.path = path;
     this.executor = Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
 
@@ -103,7 +105,7 @@ public class PersistentWatcher implements Closeable {
 
   //@Override Java 5 compatibility
   public void close() throws IOException {
-    if (started.compareAndSet(true, false)) {
+    if (closed.compareAndSet(false, true)) {
       cleanup(curatorReference.getAndSet(null));
       listeners.clear();
       lastVersion.set(-1);
