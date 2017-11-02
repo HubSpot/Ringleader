@@ -1,7 +1,17 @@
 package com.hubspot.ringleader.watcher;
 
-import com.google.common.base.Function;
-import com.google.common.base.Supplier;
+import java.io.Closeable;
+import java.io.IOException;
+import java.lang.reflect.Field;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
+
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.api.CuratorWatcher;
 import org.apache.curator.framework.api.UnhandledErrorListener;
@@ -16,17 +26,8 @@ import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.Closeable;
-import java.io.IOException;
-import java.lang.reflect.Field;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
+import com.google.common.base.Function;
+import com.google.common.base.Supplier;
 
 public class PersistentWatcher implements Closeable {
   private static final Logger LOG = LoggerFactory.getLogger(PersistentWatcher.class);
@@ -172,8 +173,9 @@ public class PersistentWatcher implements Closeable {
     long age = System.currentTimeMillis() - timestamp;
     long minAge = TimeUnit.MINUTES.toMillis(1);
 
-    // only attempt reconnect once per minute so we don't exacerbate a failure scenario
-    if (age < minAge || !curatorTimestamp.compareAndSet(timestamp, System.currentTimeMillis())) {
+    // only attempt reconnect once per minute so we don't exacerbate a failure scenario and don't reconnect when the
+    // executor is shutting down.
+    if (age < minAge || !curatorTimestamp.compareAndSet(timestamp, System.currentTimeMillis()) || executor.isShutdown()) {
       return;
     }
 
