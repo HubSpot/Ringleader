@@ -9,13 +9,13 @@
   </parent>
 
   <artifactId>Ringleader</artifactId>
-  <version>0.1.7-SNAPSHOT</version>
+  <version>0.1.7</version>
 
   <scm>
     <connection>scm:git:git@github.com:HubSpot/Ringleader.git</connection>
     <developerConnection>scm:git:git@github.com:HubSpot/Ringleader.git</developerConnection>
     <url>git@github.com:HubSpot/Ringleader.git</url>
-    <tag>HEAD</tag>
+    <tag>Ringleader-0.1.7</tag>
   </scm>
 
   <dependencies>
