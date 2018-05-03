@@ -109,8 +109,8 @@ public class WatcherFactory {
     synchronized (watcherLock) {
       if (watchers.decrementAndGet() == 0) {
         closed.set(true);
-        cleanup(curatorReference.get());
         executor.shutdown();
+        synchronousCleanup(curatorReference.get());
       }
     }
   }
@@ -192,29 +192,32 @@ public class WatcherFactory {
     }
 
     executor.submit(new Runnable() {
-
       //@Override Java 5 compatibility
       public void run() {
-        try {
-          close(curator);
-        } catch (Exception e) {
-          LOG.debug("Error closing curator", e);
-        }
-      }
-
-      private void close(CuratorFramework curator) throws Exception {
-        try {
-          curator.close();
-        } catch (UnsupportedOperationException e) {
-          // NamespaceFacade throws UnsupportedOperationException when you try to close it
-          // Need to resort to reflection to access real CuratorFramework instance so we can close it
-          Field curatorField = curator.getClass().getDeclaredField("client");
-          curatorField.setAccessible(true);
-
-          close((CuratorFramework) curatorField.get(curator));
-        }
+        synchronousCleanup(curator);
       }
     });
+  }
+
+  private void synchronousCleanup(final CuratorFramework curator) {
+    if (curator == null) {
+      return;
+    }
+
+    try {
+      try {
+        curator.close();
+      } catch (UnsupportedOperationException e) {
+        // NamespaceFacade throws UnsupportedOperationException when you try to close it
+        // Need to resort to reflection to access real CuratorFramework instance so we can close it
+        Field curatorField = curator.getClass().getDeclaredField("client");
+        curatorField.setAccessible(true);
+
+        synchronousCleanup((CuratorFramework) curatorField.get(curator));
+      }
+    } catch (Exception e) {
+      LOG.debug("Error closing curator", e);
+    }
   }
 
   private static ScheduledExecutorService getExecutor() {
