@@ -1,7 +1,13 @@
 package com.hubspot.ringleader.watcher;
 
-import com.google.common.base.Supplier;
-import com.hubspot.ringleader.watcher.Event.Type;
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.io.IOException;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
 import org.apache.curator.retry.ExponentialBackoffRetry;
@@ -13,13 +19,8 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import java.io.IOException;
-import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-
-import static org.assertj.core.api.Assertions.assertThat;
+import com.google.common.base.Supplier;
+import com.hubspot.ringleader.watcher.Event.Type;
 
 public class PersistentWatcherTest {
   private static final String PATH = "/test";
@@ -94,7 +95,7 @@ public class PersistentWatcherTest {
     watcher.start();
 
     waitForEvents();
-    assertThat(curatorCounter.get()).isEqualTo(1);
+    assertThat(curatorCounter.get()).isEqualTo(2);
     assertThat(events).hasSize(1);
     assertThat(events.get(0).getType()).isEqualTo(Type.NODE_UPDATED);
     assertThat(events.get(0).getStat().getVersion()).isEqualTo(0);
@@ -167,7 +168,7 @@ public class PersistentWatcherTest {
     watcher = newBlockingWatcher(delayedSupplier);
     watcher.start();
 
-    assertThat(curatorCounter.get()).isEqualTo(1);
+    assertThat(curatorCounter.get()).isEqualTo(2);
     assertThat(events).hasSize(1);
     assertThat(events.get(0).getType()).isEqualTo(Type.NODE_UPDATED);
     assertThat(events.get(0).getStat().getVersion()).isEqualTo(0);

@@ -2,24 +2,18 @@ package com.hubspot.ringleader.watcher;
 
 import java.io.Closeable;
 import java.io.IOException;
-import java.lang.reflect.Field;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.api.CuratorWatcher;
-import org.apache.curator.framework.api.UnhandledErrorListener;
-import org.apache.curator.framework.imps.CuratorFrameworkState;
 import org.apache.curator.framework.listen.Listenable;
 import org.apache.curator.framework.listen.ListenerContainer;
-import org.apache.curator.framework.state.ConnectionState;
-import org.apache.curator.framework.state.ConnectionStateListener;
 import org.apache.zookeeper.KeeperException.NoNodeException;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.data.Stat;
@@ -32,9 +26,7 @@ import com.google.common.base.Supplier;
 public class PersistentWatcher implements Closeable {
   private static final Logger LOG = LoggerFactory.getLogger(PersistentWatcher.class);
 
-  private final Supplier<CuratorFramework> curatorSupplier;
-  private final AtomicReference<CuratorFramework> curatorReference;
-  private final AtomicLong curatorTimestamp;
+  private final WatcherFactory parent;
   private final AtomicInteger lastVersion;
   private final AtomicBoolean started;
   private final AtomicBoolean closed;
@@ -43,10 +35,9 @@ public class PersistentWatcher implements Closeable {
   private final CuratorWatcher watcher;
   private final ListenerContainer<EventListener> listeners;
 
-  PersistentWatcher(Supplier<CuratorFramework> curatorSupplier, final String path) {
-    this.curatorSupplier = curatorSupplier;
-    this.curatorReference = new AtomicReference<CuratorFramework>();
-    this.curatorTimestamp = new AtomicLong(0);
+  PersistentWatcher(WatcherFactory parent,
+                    final String path) {
+    this.parent = parent;
     this.lastVersion = new AtomicInteger(-1);
     this.started = new AtomicBoolean();
     this.closed = new AtomicBoolean();
@@ -79,13 +70,29 @@ public class PersistentWatcher implements Closeable {
     this.listeners = new ListenerContainer<EventListener>();
   }
 
+
+  public Supplier<CuratorFramework> getCurator() {
+    return new Supplier<CuratorFramework>() {
+      @Override
+      public CuratorFramework get() {
+        return parent.getCurator().get();
+      }
+    };
+  }
+
+  /**
+   * Use {@link PersistentWatcher#getCurator()} instead
+   *
+   * Mutating this value will replace the curator framework for all
+   * persistent watchers created by the parent factory of this watcher
+   */
+  @Deprecated
   public AtomicReference<CuratorFramework> getCuratorReference() {
-    return curatorReference;
+    return parent.getCurator();
   }
 
   public void start() {
     if (started.compareAndSet(false, true)) {
-      curatorReference.set(newCurator());
       executor.submit(new Runnable() {
 
         //@Override Java 5 compatibility
@@ -107,20 +114,18 @@ public class PersistentWatcher implements Closeable {
   //@Override Java 5 compatibility
   public void close() throws IOException {
     if (closed.compareAndSet(false, true)) {
-      cleanup(curatorReference.getAndSet(null));
       listeners.clear();
       lastVersion.set(-1);
-      curatorTimestamp.set(0);
       executor.shutdown();
     }
   }
 
   private synchronized void fetch(final boolean backgroundFetch) {
     try {
-      CuratorFramework curator = curatorReference.get();
+      CuratorFramework curator = parent.getCurator().get();
       if (curator == null) {
         LOG.error("No curator present, replacing client");
-        replaceCurator();
+        replaceCurator(backgroundFetch);
         return;
       }
 
@@ -137,7 +142,7 @@ public class PersistentWatcher implements Closeable {
 
         if (previousVersion != -1 && backgroundFetch) {
           LOG.error("Watcher stopped firing, replacing client");
-          replaceCurator();
+          replaceCurator(backgroundFetch);
         }
       }
     } catch (NoNodeException e) {
@@ -147,7 +152,7 @@ public class PersistentWatcher implements Closeable {
       }
     } catch (Exception e) {
       LOG.error("Error fetching data, replacing client", e);
-      replaceCurator();
+      replaceCurator(backgroundFetch);
     }
   }
 
@@ -168,98 +173,16 @@ public class PersistentWatcher implements Closeable {
     });
   }
 
-  private synchronized void replaceCurator() {
-    long timestamp = curatorTimestamp.get();
-    long age = System.currentTimeMillis() - timestamp;
-    long minAge = TimeUnit.MINUTES.toMillis(1);
-
-    // only attempt reconnect once per minute so we don't exacerbate a failure scenario and don't reconnect when the
-    // executor is shutting down.
-    if (age < minAge || !curatorTimestamp.compareAndSet(timestamp, System.currentTimeMillis()) || executor.isShutdown()) {
-      return;
-    }
-
-    executor.submit(new Runnable() {
-
-      //@Override Java 5 compatibility
+  private void replaceCurator(final boolean backgroundFetch) {
+    parent.replaceCurator(new Runnable() {
+      @Override
       public void run() {
-        CuratorFramework previous = curatorReference.getAndSet(newCurator());
-        cleanup(previous);
-        fetch(false);
-      }
-    });
-  }
-
-  private CuratorFramework newCurator() {
-    CuratorFramework curator = null;
-    try {
-      curator = curatorSupplier.get();
-      if (curator.getState() != CuratorFrameworkState.STARTED) {
-        curator.start();
-      }
-
-      curator.getConnectionStateListenable().addListener(new ConnectionStateListener() {
-
-        //@Override Java 5 compatibility
-        public void stateChanged(CuratorFramework client, ConnectionState newState) {
-          switch (newState) {
-            case SUSPENDED:
-            case LOST:
-              LOG.error("Connection lost or suspended, replacing client");
-              replaceCurator();
-              break;
-            default:
-              // make findbugs happy
+        executor.submit(new Runnable() {
+          @Override
+          public void run() {
+            fetch(backgroundFetch);
           }
-        }
-      });
-
-      curator.getUnhandledErrorListenable().addListener(new UnhandledErrorListener() {
-
-        //@Override Java 5 compatibility
-        public void unhandledError(String message, Throwable e) {
-          LOG.error("Curator error, replacing client", e);
-          replaceCurator();
-        }
-      });
-
-      return curator;
-    } catch (Exception e) {
-      LOG.error("Error creating curator", e);
-      cleanup(curator);
-      return null;
-    }
-  }
-
-  private void cleanup(final CuratorFramework curator) {
-    if (curator == null) {
-      return;
-    }
-
-    executor.submit(new Runnable() {
-
-      //@Override Java 5 compatibility
-      public void run() {
-        try {
-          close(curator);
-        } catch (Exception e) {
-          LOG.debug("Error closing curator", e);
-        }
-      }
-
-      private void close(CuratorFramework curator) throws Exception {
-        try {
-          curator.close();
-        } catch (UnsupportedOperationException e) {
-            /*
-            NamespaceFacade throws UnsupportedOperationException when you try to close it
-            Need to resort to reflection to access real CuratorFramework instance so we can close it
-             */
-          Field curatorField = curator.getClass().getDeclaredField("client");
-          curatorField.setAccessible(true);
-
-          close((CuratorFramework) curatorField.get(curator));
-        }
+        });
       }
     });
   }
