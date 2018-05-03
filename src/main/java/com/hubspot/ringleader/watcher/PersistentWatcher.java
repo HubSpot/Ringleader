@@ -117,6 +117,7 @@ public class PersistentWatcher implements Closeable {
       listeners.clear();
       lastVersion.set(-1);
       executor.shutdown();
+      parent.recordClose();
     }
   }
 

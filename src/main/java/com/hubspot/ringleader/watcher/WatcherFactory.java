@@ -7,6 +7,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -18,72 +19,100 @@ import org.apache.curator.framework.state.ConnectionStateListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
 
 public class WatcherFactory {
   private static final Logger LOG = LoggerFactory.getLogger(WatcherFactory.class);
   private final Supplier<CuratorFramework> curatorSupplier;
 
+  private final Object watcherLock;
   private final AtomicReference<CuratorFramework> curatorReference;
   private final AtomicLong curatorTimestamp;
   private final AtomicBoolean started;
   private final AtomicBoolean closed;
+  private final AtomicInteger watchers;
   private final ScheduledExecutorService executor;
 
   public WatcherFactory(Supplier<CuratorFramework> curatorSupplier) {
+    this(curatorSupplier, getExecutor());
+  }
+
+  @VisibleForTesting
+  WatcherFactory(Supplier<CuratorFramework> curatorSupplier,
+                 ScheduledExecutorService executor) {
+    this.watcherLock = new Object();
     this.curatorSupplier = curatorSupplier;
     this.curatorReference = new AtomicReference<CuratorFramework>();
     this.curatorTimestamp = new AtomicLong(0);
     this.started = new AtomicBoolean();
     this.closed = new AtomicBoolean();
-    this.executor = Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
-      //@Override Java 5 compatibility
-      public Thread newThread(Runnable r) {
-        Thread thread = Executors.defaultThreadFactory().newThread(r);
-        thread.setName("WatcherFactoryExecutor");
-        thread.setDaemon(true);
-        return thread;
-      }
-    });
+    this.watchers = new AtomicInteger(0);
+    this.executor = executor;
   }
 
   public PersistentWatcher dataWatcher(String path) {
-    startIfNecessary();
+    synchronized (watcherLock) {
+      if (closed.get()) {
+        throw new IllegalStateException("This watcher factory has been closed");
+      }
 
-    return new PersistentWatcher(this, path);
+      startIfNecessary();
+
+      PersistentWatcher watcher = new PersistentWatcher(this, path);
+      watchers.incrementAndGet();
+      return watcher;
+    }
   }
 
   public PersistentWatcher blockingDataWatcher(String path) {
-    startIfNecessary();
+    synchronized (watcherLock) {
+      if (closed.get()) {
+        throw new IllegalStateException("This watcher factory has been closed");
+      }
 
-    final CountDownLatch started = new CountDownLatch(1);
+      startIfNecessary();
 
-    PersistentWatcher watcher = new PersistentWatcher(this, path) {
+      final CountDownLatch started = new CountDownLatch(1);
 
-      @Override
-      public void start() {
-        super.start();
-        try {
-          started.await();
-        } catch (InterruptedException e) {
-          Thread.currentThread().interrupt();
+      PersistentWatcher watcher = new PersistentWatcher(this, path) {
+
+        @Override
+        public void start() {
+          super.start();
+          try {
+            started.await();
+          } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+          }
         }
-      }
-    };
+      };
 
-    watcher.getEventListenable().addListener(new EventListener() {
+      watcher.getEventListenable().addListener(new EventListener() {
 
-      //@Override Java 5 compatibility
-      public void newEvent(Event event) {
-        started.countDown();
-      }
-    });
+        //@Override Java 5 compatibility
+        public void newEvent(Event event) {
+          started.countDown();
+        }
+      });
 
-    return watcher;
+      watchers.incrementAndGet();
+      return watcher;
+    }
   }
 
   AtomicReference<CuratorFramework> getCurator() {
     return curatorReference;
+  }
+
+  void recordClose() {
+    synchronized (watcherLock) {
+      if (watchers.decrementAndGet() == 0) {
+        closed.set(true);
+        cleanup(curatorReference.get());
+        executor.shutdown();
+      }
+    }
   }
 
   synchronized void replaceCurator(final Runnable runnable) {
@@ -184,6 +213,18 @@ public class WatcherFactory {
 
           close((CuratorFramework) curatorField.get(curator));
         }
+      }
+    });
+  }
+
+  private static ScheduledExecutorService getExecutor() {
+    return Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
+      //@Override Java 5 compatibility
+      public Thread newThread(Runnable r) {
+        Thread thread = Executors.defaultThreadFactory().newThread(r);
+        thread.setName("WatcherFactoryExecutor");
+        thread.setDaemon(true);
+        return thread;
       }
     });
   }

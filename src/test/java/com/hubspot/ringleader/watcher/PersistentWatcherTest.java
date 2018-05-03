@@ -5,6 +5,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -175,6 +178,39 @@ public class PersistentWatcherTest {
     assertThat(events.get(0).getData()).isEqualTo("0".getBytes());
   }
 
+  @Test
+  public void itCleansUpAfterItself() throws Exception {
+    ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
+      //@Override Java 5 compatibility
+      public Thread newThread(Runnable r) {
+        Thread thread = Executors.defaultThreadFactory().newThread(r);
+        thread.setName("WatcherFactoryTestExecutor");
+        thread.setDaemon(true);
+        return thread;
+      }
+    });
+
+    WatcherFactory factory = new WatcherFactory(curatorSupplier, executor);
+    PersistentWatcher watcher1 = factory.dataWatcher(PATH);
+    PersistentWatcher watcher2 = factory.dataWatcher(PATH);
+    PersistentWatcher watcher3 = factory.dataWatcher(PATH);
+
+    assertThat(executor.isShutdown()).isFalse();
+    assertThat(curatorCounter.get()).isEqualTo(2);
+
+    watcher1.close();
+    assertThat(executor.isShutdown()).isFalse();
+    assertThat(curatorCounter.get()).isEqualTo(2);
+
+    watcher2.close();
+    assertThat(executor.isShutdown()).isFalse();
+    assertThat(curatorCounter.get()).isEqualTo(2);
+
+    watcher3.close();
+    assertThat(executor.isShutdown()).isTrue();
+    assertThat(curatorCounter.get()).isEqualTo(2);
+  }
+
   private PersistentWatcher newWatcher(Supplier<CuratorFramework> curatorSupplier) {
     PersistentWatcher watcher = new WatcherFactory(curatorSupplier).dataWatcher(PATH);
     addListener(watcher);
@@ -199,11 +235,11 @@ public class PersistentWatcherTest {
 
   private CuratorFramework newCurator() {
     CuratorFramework curator = CuratorFrameworkFactory.builder()
-            .connectString(SERVER.getConnectString())
-            .sessionTimeoutMs(60000)
-            .connectionTimeoutMs(5000)
-            .retryPolicy(new ExponentialBackoffRetry(1000, 3))
-            .build();
+        .connectString(SERVER.getConnectString())
+        .sessionTimeoutMs(60000)
+        .connectionTimeoutMs(5000)
+        .retryPolicy(new ExponentialBackoffRetry(1000, 3))
+        .build();
 
     curator.start();
 
