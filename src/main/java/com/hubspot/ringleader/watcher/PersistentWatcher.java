@@ -114,10 +114,13 @@ public class PersistentWatcher implements Closeable {
   //@Override Java 5 compatibility
   public void close() throws IOException {
     if (closed.compareAndSet(false, true)) {
-      listeners.clear();
-      lastVersion.set(-1);
-      executor.shutdown();
-      parent.recordClose();
+      try {
+        listeners.clear();
+        lastVersion.set(-1);
+        executor.shutdown();
+      } finally {
+        parent.recordClose();
+      }
     }
   }
 

@@ -35,7 +35,7 @@ public class WatcherFactory {
   private final ScheduledExecutorService executor;
 
   public WatcherFactory(Supplier<CuratorFramework> curatorSupplier) {
-    this(curatorSupplier, getExecutor());
+    this(curatorSupplier, newExecutor());
   }
 
   @VisibleForTesting
@@ -220,7 +220,7 @@ public class WatcherFactory {
     }
   }
 
-  private static ScheduledExecutorService getExecutor() {
+  private static ScheduledExecutorService newExecutor() {
     return Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
       //@Override Java 5 compatibility
       public Thread newThread(Runnable r) {
