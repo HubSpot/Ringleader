@@ -54,6 +54,7 @@ public class PersistentWatcher implements Closeable {
     });
     // keep a reference to the watcher so we don't add duplicates (Curator uses a set)
     this.watcher = new CuratorWatcher() {
+      private final AtomicReference<Boolean> connected = new AtomicReference<>(false);
 
       //@Override Java 5 compatibility
       public void process(WatchedEvent event) throws Exception {
@@ -65,11 +66,26 @@ public class PersistentWatcher implements Closeable {
           default:
             fetch(false);
         }
+        switch (event.getState()) {
+          case AuthFailed:
+          case Disconnected:
+          case Expired:
+            if (connected.compareAndSet(true, false)) {
+              notifyListeners(Event.connectionLost());
+            }
+          case SyncConnected:
+          case SaslAuthenticated:
+          case ConnectedReadOnly:
+            if (connected.compareAndSet(false, true)) {
+              notifyListeners(Event.connected());
+            }
+          default:
+            // no-op
+        }
       }
     };
     this.listeners = new ListenerContainer<EventListener>();
   }
-
 
   public Supplier<CuratorFramework> getCurator() {
     return new Supplier<CuratorFramework>() {
