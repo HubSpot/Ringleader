@@ -2,11 +2,9 @@ package com.hubspot.ringleader.watcher;
 
 import org.apache.zookeeper.data.Stat;
 
-import java.util.Arrays;
-
 public class Event {
   public enum Type {
-    NODE_UPDATED, NODE_DELETED
+    NODE_UPDATED, NODE_DELETED, CONNECTION_LOST, CONNECTED
   }
 
   private final Type type;
@@ -25,6 +23,14 @@ public class Event {
 
   public static Event nodeDeleted() {
     return new Event(Type.NODE_DELETED, null, null);
+  }
+
+  public static Event connectionLost() {
+    return new Event(Type.CONNECTION_LOST, null, null);
+  }
+
+  public static Event connected() {
+    return new Event(Type.CONNECTED, null, null);
   }
 
   public Type getType() {
