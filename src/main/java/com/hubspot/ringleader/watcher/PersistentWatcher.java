@@ -33,7 +33,9 @@ public class PersistentWatcher implements Closeable {
   private final String path;
   private final ScheduledExecutorService executor;
   private final CuratorWatcher watcher;
+  private final CuratorListener curatorListener;
   private final ListenerContainer<EventListener> listeners;
+  private final ListenerContainer<CuratorListener> curatorListeners;
 
   PersistentWatcher(WatcherFactory parent,
                     final String path) {
@@ -67,7 +69,18 @@ public class PersistentWatcher implements Closeable {
         }
       }
     };
+
+    // keep a reference to the listener so we can remove it on close
+    this.curatorListener = new CuratorListener() {
+      // @Override Java 5 compatibility
+      public void curatorReplaced(CuratorFramework newCurator) {
+        notifyCuratorListeners(newCurator);
+      }
+    };
+
     this.listeners = new ListenerContainer<EventListener>();
+    this.curatorListeners = new ListenerContainer<CuratorListener>();
+    parent.getCuratorEventListenable().addListener(this.curatorListener);
   }
 
 
@@ -111,10 +124,16 @@ public class PersistentWatcher implements Closeable {
     return listeners;
   }
 
+  public Listenable<CuratorListener> getCuratorEventListenable() {
+    return curatorListeners;
+  }
+
   //@Override Java 5 compatibility
   public void close() throws IOException {
     if (closed.compareAndSet(false, true)) {
       try {
+        parent.getCuratorEventListenable().removeListener(this.curatorListener);
+        curatorListeners.clear();
         listeners.clear();
         lastVersion.set(-1);
         executor.shutdown();
@@ -122,6 +141,10 @@ public class PersistentWatcher implements Closeable {
         parent.recordClose();
       }
     }
+  }
+
+  private void curatorReplaced(CuratorFramework newCurator) {
+
   }
 
   private synchronized void fetch(final boolean backgroundFetch) {
@@ -170,6 +193,23 @@ public class PersistentWatcher implements Closeable {
           //@Override Java 5 compatibility
           public Void apply(EventListener listener) {
             listener.newEvent(event);
+            return null;
+          }
+        });
+      }
+    });
+  }
+
+  private void notifyCuratorListeners(final CuratorFramework newCurator) {
+    executor.submit(new Runnable() {
+
+      //@Override Java 5 compatibility
+      public void run() {
+        curatorListeners.forEach(new Function<CuratorListener, Void>() {
+
+          //@Override Java 5 compatibility
+          public Void apply(CuratorListener listener) {
+            curatorListener.curatorReplaced(newCurator);
             return null;
           }
         });

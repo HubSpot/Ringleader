@@ -14,6 +14,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.api.UnhandledErrorListener;
 import org.apache.curator.framework.imps.CuratorFrameworkState;
+import org.apache.curator.framework.listen.Listenable;
+import org.apache.curator.framework.listen.ListenerContainer;
 import org.apache.curator.framework.state.ConnectionState;
 import org.apache.curator.framework.state.ConnectionStateListener;
 import org.slf4j.Logger;
@@ -33,6 +35,7 @@ public class WatcherFactory {
   private final AtomicBoolean closed;
   private final AtomicInteger watchers;
   private final ScheduledExecutorService executor;
+  private final ListenerContainer<CuratorListener> curatorListeners;
 
   public WatcherFactory(Supplier<CuratorFramework> curatorSupplier) {
     this(curatorSupplier, newExecutor());
@@ -49,6 +52,7 @@ public class WatcherFactory {
     this.closed = new AtomicBoolean();
     this.watchers = new AtomicInteger(0);
     this.executor = executor;
+    this.curatorListeners = new ListenerContainer<CuratorListener>();
   }
 
   public PersistentWatcher dataWatcher(String path) {
@@ -99,6 +103,10 @@ public class WatcherFactory {
       watchers.incrementAndGet();
       return watcher;
     }
+  }
+
+  public Listenable<CuratorListener> getCuratorEventListenable() {
+    return curatorListeners;
   }
 
   AtomicReference<CuratorFramework> getCurator() {
