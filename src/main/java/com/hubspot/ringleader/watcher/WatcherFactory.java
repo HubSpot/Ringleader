@@ -160,7 +160,7 @@ public class WatcherFactory {
           switch (newState) {
             case SUSPENDED:
             case LOST:
-              LOG.error("Connection lost or suspended, replacing client");
+              LOG.info("Connection lost or suspended, replacing client");
               replaceCurator(null);
               break;
             default:
