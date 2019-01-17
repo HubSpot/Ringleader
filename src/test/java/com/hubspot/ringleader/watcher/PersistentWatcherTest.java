@@ -8,6 +8,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -190,7 +191,7 @@ public class PersistentWatcherTest {
       }
     });
 
-    WatcherFactory factory = new WatcherFactory(curatorSupplier, executor);
+    WatcherFactory factory = new WatcherFactory(curatorSupplier, executor, TimeUnit.MINUTES.toMillis(1));
     PersistentWatcher watcher1 = factory.dataWatcher(PATH);
     PersistentWatcher watcher2 = factory.dataWatcher(PATH);
     PersistentWatcher watcher3 = factory.dataWatcher(PATH);
