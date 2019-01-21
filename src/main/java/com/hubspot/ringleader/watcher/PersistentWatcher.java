@@ -94,6 +94,19 @@ public class PersistentWatcher implements Closeable {
   public void start() {
     if (started.compareAndSet(false, true)) {
       fetchInExecutor();
+
+      executor.schedule(new Runnable() {
+        //@Override Java 5 compatibility
+        public void run() {
+          int versionBeforeFetch = lastVersion.get();
+          fetch();
+
+          if (lastVersion.get() != versionBeforeFetch) {
+            LOG.error("Detected a change that didn't raise an event; replacing curator");
+            parent.replaceCurator();
+          }
+        }
+      }, 10, TimeUnit.MINUTES);
     }
   }
 
@@ -122,11 +135,7 @@ public class PersistentWatcher implements Closeable {
     executor.submit(new Runnable() {
       //@Override Java 5 compatibility
       public void run() {
-        try {
-          fetch();
-        } finally {
-          executor.schedule(this, 10, TimeUnit.MINUTES);
-        }
+        fetch();
       }
     });
   }
