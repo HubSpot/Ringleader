@@ -63,7 +63,7 @@ public class PersistentWatcher implements Closeable {
             notifyListeners(Event.nodeDeleted());
             break;
           default:
-            fetch(false);
+            fetchInExecutor();
         }
       }
     };
@@ -93,18 +93,25 @@ public class PersistentWatcher implements Closeable {
 
   public void start() {
     if (started.compareAndSet(false, true)) {
-      executor.submit(new Runnable() {
+      fetchInExecutor();
 
+      executor.schedule(new Runnable() {
         //@Override Java 5 compatibility
         public void run() {
-          try {
-            fetch(true);
-          } finally {
-            executor.schedule(this, 10, TimeUnit.MINUTES);
+          int versionBeforeFetch = lastVersion.get();
+          fetch();
+
+          if (lastVersion.get() != versionBeforeFetch) {
+            LOG.error("Detected a change that didn't raise an event; replacing curator");
+            parent.replaceCurator();
           }
         }
-      });
+      }, 10, TimeUnit.MINUTES);
     }
+  }
+
+  public boolean isStarted() {
+    return started.get();
   }
 
   public Listenable<EventListener> getEventListenable() {
@@ -119,17 +126,26 @@ public class PersistentWatcher implements Closeable {
         lastVersion.set(-1);
         executor.shutdown();
       } finally {
-        parent.recordClose();
+        parent.recordClose(this);
       }
     }
   }
 
-  private synchronized void fetch(final boolean backgroundFetch) {
+  void fetchInExecutor() {
+    executor.submit(new Runnable() {
+      //@Override Java 5 compatibility
+      public void run() {
+        fetch();
+      }
+    });
+  }
+
+  private synchronized void fetch() {
     try {
       CuratorFramework curator = parent.getCurator().get();
       if (curator == null) {
         LOG.error("No curator present, replacing client");
-        replaceCurator(backgroundFetch);
+        parent.replaceCurator();
         return;
       }
 
@@ -141,13 +157,9 @@ public class PersistentWatcher implements Closeable {
 
       int version = stat.getVersion();
       int previousVersion = lastVersion.getAndSet(version);
+
       if (version != previousVersion) {
         notifyListeners(Event.nodeUpdated(stat, data));
-
-        if (previousVersion != -1 && backgroundFetch) {
-          LOG.error("Watcher stopped firing, replacing client");
-          replaceCurator(backgroundFetch);
-        }
       }
     } catch (NoNodeException e) {
       LOG.debug("No node exists for path {}", path);
@@ -156,7 +168,7 @@ public class PersistentWatcher implements Closeable {
       }
     } catch (Exception e) {
       LOG.error("Error fetching data, replacing client", e);
-      replaceCurator(backgroundFetch);
+      parent.replaceCurator();
     }
   }
 
@@ -171,20 +183,6 @@ public class PersistentWatcher implements Closeable {
           public Void apply(EventListener listener) {
             listener.newEvent(event);
             return null;
-          }
-        });
-      }
-    });
-  }
-
-  private void replaceCurator(final boolean backgroundFetch) {
-    parent.replaceCurator(new Runnable() {
-      @Override
-      public void run() {
-        executor.submit(new Runnable() {
-          @Override
-          public void run() {
-            fetch(backgroundFetch);
           }
         });
       }

@@ -2,8 +2,6 @@ package com.hubspot.ringleader.watcher;
 
 import org.apache.zookeeper.data.Stat;
 
-import java.util.Arrays;
-
 public class Event {
   public enum Type {
     NODE_UPDATED, NODE_DELETED

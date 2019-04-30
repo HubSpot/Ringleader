@@ -1,13 +1,14 @@
 package com.hubspot.ringleader.watcher;
 
 import java.lang.reflect.Field;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -29,26 +30,31 @@ public class WatcherFactory {
   private final Object watcherLock;
   private final AtomicReference<CuratorFramework> curatorReference;
   private final AtomicLong curatorTimestamp;
+  private final AtomicBoolean replacementScheduled;
   private final AtomicBoolean started;
   private final AtomicBoolean closed;
-  private final AtomicInteger watchers;
+  private final Map<PersistentWatcher, Boolean> watchers;
   private final ScheduledExecutorService executor;
+  private final long replacementIntervalMillis;
 
   public WatcherFactory(Supplier<CuratorFramework> curatorSupplier) {
-    this(curatorSupplier, newExecutor());
+    this(curatorSupplier, newExecutor(), TimeUnit.MINUTES.toMillis(1));
   }
 
   @VisibleForTesting
   WatcherFactory(Supplier<CuratorFramework> curatorSupplier,
-                 ScheduledExecutorService executor) {
+                 ScheduledExecutorService executor,
+                 long replacementIntervalMillis) {
     this.watcherLock = new Object();
     this.curatorSupplier = curatorSupplier;
     this.curatorReference = new AtomicReference<CuratorFramework>();
     this.curatorTimestamp = new AtomicLong(0);
+    this.replacementScheduled = new AtomicBoolean();
     this.started = new AtomicBoolean();
     this.closed = new AtomicBoolean();
-    this.watchers = new AtomicInteger(0);
+    this.watchers = new ConcurrentHashMap<>();
     this.executor = executor;
+    this.replacementIntervalMillis = replacementIntervalMillis;
   }
 
   public PersistentWatcher dataWatcher(String path) {
@@ -60,7 +66,7 @@ public class WatcherFactory {
       startIfNecessary();
 
       PersistentWatcher watcher = new PersistentWatcher(this, path);
-      watchers.incrementAndGet();
+      watchers.put(watcher, true);
       return watcher;
     }
   }
@@ -96,7 +102,7 @@ public class WatcherFactory {
         }
       });
 
-      watchers.incrementAndGet();
+      watchers.put(watcher, true);
       return watcher;
     }
   }
@@ -105,9 +111,10 @@ public class WatcherFactory {
     return curatorReference;
   }
 
-  void recordClose() {
+  void recordClose(PersistentWatcher watcher) {
     synchronized (watcherLock) {
-      if (watchers.decrementAndGet() == 0) {
+      watchers.remove(watcher);
+      if (watchers.size() == 0) {
         closed.set(true);
         executor.shutdown();
         synchronousCleanup(curatorReference.get());
@@ -115,16 +122,37 @@ public class WatcherFactory {
     }
   }
 
-  synchronized void replaceCurator(final Runnable runnable) {
+  synchronized void replaceCurator() {
     long timestamp = curatorTimestamp.get();
     long age = System.currentTimeMillis() - timestamp;
-    long minAge = TimeUnit.MINUTES.toMillis(1);
 
-    // only attempt reconnect once per minute so we don't exacerbate a failure scenario and don't reconnect when the
-    // executor is shutting down.
-    if (age < minAge || !curatorTimestamp.compareAndSet(timestamp, System.currentTimeMillis()) || executor.isShutdown()) {
+    if (executor.isShutdown()) {
+      // don't reconnect when the executor is shutting down.
       return;
     }
+
+    if (replacementScheduled.get()) {
+      return;
+    }
+
+    // only attempt reconnect once per replacementIntervalMillis so we don't exacerbate a failure scenario
+    if (age < replacementIntervalMillis) {
+      if (!replacementScheduled.get()) {
+        long millisToWait = replacementIntervalMillis - age;
+
+        replacementScheduled.set(true);
+        executor.schedule(new Runnable() {
+          //@Override Java 5 compatibility
+          public void run() {
+            replacementScheduled.set(false);
+            replaceCurator();
+          }
+        }, millisToWait, TimeUnit.MILLISECONDS);
+      }
+      return;
+    }
+
+    curatorTimestamp.set(System.currentTimeMillis());
 
     executor.submit(new Runnable() {
 
@@ -132,9 +160,6 @@ public class WatcherFactory {
       public void run() {
         CuratorFramework previous = curatorReference.getAndSet(createNewCurator());
         cleanup(previous);
-        if (runnable != null) {
-          runnable.run();
-        }
       }
     });
   }
@@ -161,7 +186,15 @@ public class WatcherFactory {
             case SUSPENDED:
             case LOST:
               LOG.info("Connection lost or suspended, replacing client");
-              replaceCurator(null);
+              replaceCurator();
+              break;
+            case CONNECTED:
+            case RECONNECTED:
+              for (PersistentWatcher watcher : watchers.keySet()) {
+                if (watcher.isStarted()) {
+                  watcher.fetchInExecutor();
+                }
+              }
               break;
             default:
               // make findbugs happy
@@ -174,7 +207,7 @@ public class WatcherFactory {
         //@Override Java 5 compatibility
         public void unhandledError(String message, Throwable e) {
           LOG.error("Curator error, replacing client", e);
-          replaceCurator(null);
+          replaceCurator();
         }
       });
 
