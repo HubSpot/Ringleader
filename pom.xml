@@ -9,7 +9,7 @@
   </parent>
 
   <artifactId>Ringleader</artifactId>
-  <version>0.1.9-SNAPSHOT</version>
+  <version>0.1.10-SNAPSHOT</version>
 
   <scm>
     <connection>scm:git:git@github.com:HubSpot/Ringleader.git</connection>
