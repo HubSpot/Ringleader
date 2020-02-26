@@ -4,7 +4,6 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -15,12 +14,11 @@ import org.apache.curator.framework.api.CuratorWatcher;
 import org.apache.curator.framework.listen.Listenable;
 import org.apache.curator.framework.listen.ListenerContainer;
 import org.apache.zookeeper.KeeperException.NoNodeException;
-import org.apache.zookeeper.WatchedEvent;
+import org.apache.zookeeper.Watcher.Event.EventType;
 import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.base.Function;
 import com.google.common.base.Supplier;
 
 public class PersistentWatcher implements Closeable {
@@ -42,42 +40,28 @@ public class PersistentWatcher implements Closeable {
     this.started = new AtomicBoolean();
     this.closed = new AtomicBoolean();
     this.path = path;
-    this.executor = Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
-
-      //@Override Java 5 compatibility
-      public Thread newThread(Runnable r) {
-        Thread thread = Executors.defaultThreadFactory().newThread(r);
-        thread.setName("PersistentWatcher-" + path);
-        thread.setDaemon(true);
-        return thread;
-      }
+    this.executor = Executors.newSingleThreadScheduledExecutor(runnable -> {
+      Thread thread = Executors.defaultThreadFactory().newThread(runnable);
+      thread.setName("PersistentWatcher-" + path);
+      thread.setDaemon(true);
+      return thread;
     });
-    // keep a reference to the watcher so we don't add duplicates (Curator uses a set)
-    this.watcher = new CuratorWatcher() {
 
-      //@Override Java 5 compatibility
-      public void process(WatchedEvent event) throws Exception {
-        switch (event.getType()) {
-          case NodeDeleted:
-            lastVersion.set(-1);
-            notifyListeners(Event.nodeDeleted());
-            break;
-          default:
-            fetchInExecutor();
-        }
+    // keep a reference to the watcher so we don't add duplicates (Curator uses a set)
+    this.watcher = event -> {
+      if (event.getType() == EventType.NodeDeleted) {
+        lastVersion.set(-1);
+        notifyListeners(Event.nodeDeleted());
+      } else {
+        fetchInExecutor();
       }
     };
-    this.listeners = new ListenerContainer<EventListener>();
+    this.listeners = new ListenerContainer<>();
   }
 
 
   public Supplier<CuratorFramework> getCurator() {
-    return new Supplier<CuratorFramework>() {
-      @Override
-      public CuratorFramework get() {
-        return parent.getCurator().get();
-      }
-    };
+    return () -> parent.getCurator().get();
   }
 
   /**
@@ -95,16 +79,13 @@ public class PersistentWatcher implements Closeable {
     if (started.compareAndSet(false, true)) {
       fetchInExecutor();
 
-      executor.schedule(new Runnable() {
-        //@Override Java 5 compatibility
-        public void run() {
-          int versionBeforeFetch = lastVersion.get();
-          fetch();
+      executor.schedule(() -> {
+        int versionBeforeFetch = lastVersion.get();
+        fetch();
 
-          if (lastVersion.get() != versionBeforeFetch) {
-            LOG.error("Detected a change that didn't raise an event; replacing curator");
-            parent.replaceCurator();
-          }
+        if (lastVersion.get() != versionBeforeFetch) {
+          LOG.error("Detected a change that didn't raise an event; replacing curator");
+          parent.replaceCurator();
         }
       }, 10, TimeUnit.MINUTES);
     }
@@ -118,7 +99,7 @@ public class PersistentWatcher implements Closeable {
     return listeners;
   }
 
-  //@Override Java 5 compatibility
+  @Override
   public void close() throws IOException {
     if (closed.compareAndSet(false, true)) {
       try {
@@ -132,12 +113,7 @@ public class PersistentWatcher implements Closeable {
   }
 
   void fetchInExecutor() {
-    executor.submit(new Runnable() {
-      //@Override Java 5 compatibility
-      public void run() {
-        fetch();
-      }
-    });
+    executor.submit(this::fetch);
   }
 
   private synchronized void fetch() {
@@ -173,19 +149,11 @@ public class PersistentWatcher implements Closeable {
   }
 
   private void notifyListeners(final Event event) {
-    executor.submit(new Runnable() {
-
-      //@Override Java 5 compatibility
-      public void run() {
-        listeners.forEach(new Function<EventListener, Void>() {
-
-          //@Override Java 5 compatibility
-          public Void apply(EventListener listener) {
-            listener.newEvent(event);
-            return null;
-          }
-        });
-      }
+    executor.submit(() -> {
+      listeners.forEach(listener -> {
+        listener.newEvent(event);
+        return null;
+      });
     });
   }
 }
