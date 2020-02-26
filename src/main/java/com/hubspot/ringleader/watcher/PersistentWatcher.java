@@ -79,15 +79,20 @@ public class PersistentWatcher implements Closeable {
     if (started.compareAndSet(false, true)) {
       fetchInExecutor();
 
-      executor.schedule(() -> {
-        int versionBeforeFetch = lastVersion.get();
-        fetch();
+      executor.scheduleAtFixedRate(() -> {
+        try {
+          int versionBeforeFetch = lastVersion.get();
+          fetch();
 
-        if (lastVersion.get() != versionBeforeFetch) {
-          LOG.error("Detected a change that didn't raise an event; replacing curator");
+          if (lastVersion.get() != versionBeforeFetch) {
+            LOG.error("Detected a change that didn't raise an event; replacing curator");
+            parent.replaceCurator();
+          }
+        } catch (Throwable t) {
+          LOG.error("Error fetching data, replacing client", t);
           parent.replaceCurator();
         }
-      }, 10, TimeUnit.MINUTES);
+      }, 1, 1, TimeUnit.MINUTES);
     }
   }
 
