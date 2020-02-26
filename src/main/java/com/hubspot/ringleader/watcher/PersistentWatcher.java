@@ -79,7 +79,7 @@ public class PersistentWatcher implements Closeable {
     if (started.compareAndSet(false, true)) {
       fetchInExecutor();
 
-      executor.schedule(() -> {
+      executor.scheduleAtFixedRate(() -> {
         int versionBeforeFetch = lastVersion.get();
         fetch();
 
@@ -87,7 +87,7 @@ public class PersistentWatcher implements Closeable {
           LOG.error("Detected a change that didn't raise an event; replacing curator");
           parent.replaceCurator();
         }
-      }, 10, TimeUnit.MINUTES);
+      }, 1, 1, TimeUnit.MINUTES);
     }
   }
 
