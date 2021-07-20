@@ -85,7 +85,7 @@ public class PersistentWatcher implements Closeable {
           fetch();
 
           if (lastVersion.get() != versionBeforeFetch) {
-            LOG.error("Detected a change that didn't raise an event; replacing curator");
+            LOG.warn("Detected a change that didn't raise an event; replacing curator");
             parent.replaceCurator();
           }
         } catch (Throwable t) {
