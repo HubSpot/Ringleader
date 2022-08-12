@@ -13,6 +13,7 @@ import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.api.CuratorWatcher;
 import org.apache.curator.framework.listen.Listenable;
 import org.apache.curator.framework.listen.ListenerContainer;
+import org.apache.curator.framework.listen.StandardListenerManager;
 import org.apache.zookeeper.KeeperException.NoNodeException;
 import org.apache.zookeeper.Watcher.Event.EventType;
 import org.apache.zookeeper.data.Stat;
@@ -31,7 +32,7 @@ public class PersistentWatcher implements Closeable {
   private final String path;
   private final ScheduledExecutorService executor;
   private final CuratorWatcher watcher;
-  private final ListenerContainer<EventListener> listeners;
+  private final StandardListenerManager<EventListener> listeners;
 
   PersistentWatcher(WatcherFactory parent,
                     final String path) {
@@ -56,7 +57,7 @@ public class PersistentWatcher implements Closeable {
         fetchInExecutor();
       }
     };
-    this.listeners = new ListenerContainer<>();
+    this.listeners = StandardListenerManager.standard();
   }
 
 
@@ -157,7 +158,6 @@ public class PersistentWatcher implements Closeable {
     executor.submit(() -> {
       listeners.forEach(listener -> {
         listener.newEvent(event);
-        return null;
       });
     });
   }
