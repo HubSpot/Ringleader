@@ -50,11 +50,14 @@ public class PersistentWatcher implements Closeable {
 
     // keep a reference to the watcher so we don't add duplicates (Curator uses a set)
     this.watcher = event -> {
-      if (event.getType() == EventType.NodeDeleted) {
-        lastVersion.set(-1);
-        notifyListeners(Event.nodeDeleted());
-      } else {
-        fetchInExecutor();
+      // Make sure the connection is open, otherwise we'll throw an error trying to submit to the executor
+      if (!closed.get()) {
+        if (event.getType() == EventType.NodeDeleted) {
+          lastVersion.set(-1);
+          notifyListeners(Event.nodeDeleted());
+        } else {
+          fetchInExecutor();
+        }
       }
     };
     this.listeners = StandardListenerManager.standard();
