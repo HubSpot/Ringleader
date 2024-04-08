@@ -3,8 +3,10 @@ package com.hubspot.ringleader.watcher;
 import org.apache.zookeeper.data.Stat;
 
 public class Event {
+
   public enum Type {
-    NODE_UPDATED, NODE_DELETED
+    NODE_UPDATED,
+    NODE_DELETED,
   }
 
   private final Type type;
