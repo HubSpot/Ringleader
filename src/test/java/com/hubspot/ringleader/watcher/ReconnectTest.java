@@ -2,6 +2,10 @@ package com.hubspot.ringleader.watcher;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.google.common.base.Supplier;
+import com.google.common.io.Files;
+import com.google.common.primitives.Longs;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import java.io.File;
 import java.io.IOException;
 import java.net.BindException;
@@ -9,7 +13,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
-
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
 import org.apache.curator.retry.ExponentialBackoffRetry;
@@ -21,12 +24,8 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-import com.google.common.base.Supplier;
-import com.google.common.io.Files;
-import com.google.common.primitives.Longs;
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
-
 public class ReconnectTest {
+
   private static final int SESSION_TIMEOUT_MS = 5000;
   private static final String PATH = "/test";
 
@@ -42,36 +41,43 @@ public class ReconnectTest {
   public void setup() {
     sharedDataDirectory = Files.createTempDir();
 
-    curatorSupplier = new Supplier<CuratorFramework>() {
-      //@Override Java 5 compatibility
-      public CuratorFramework get() {
-        CuratorFramework curator = CuratorFrameworkFactory.builder()
+    curatorSupplier =
+      new Supplier<CuratorFramework>() {
+        //@Override Java 5 compatibility
+        public CuratorFramework get() {
+          CuratorFramework curator = CuratorFrameworkFactory
+            .builder()
             .connectString(getCurrentServer().getConnectString())
             .sessionTimeoutMs(SESSION_TIMEOUT_MS)
             .connectionTimeoutMs(1000)
             .retryPolicy(new ExponentialBackoffRetry(100, 3))
             .build();
 
-        curator.start();
+          curator.start();
 
-        return curator;
-      }
-    };
+          return curator;
+        }
+      };
 
     servers.add(createNewServer());
     createData();
 
-    executor = Executors.newSingleThreadScheduledExecutor(
-        new ThreadFactoryBuilder().setDaemon(true).build());
+    executor =
+      Executors.newSingleThreadScheduledExecutor(
+        new ThreadFactoryBuilder().setDaemon(true).build()
+      );
 
     watcher = new WatcherFactory(curatorSupplier, executor, 5000).dataWatcher(PATH);
-    watcher.getEventListenable().addListener(new EventListener() {
-
-      //@Override Java 5 compatibility
-      public void newEvent(Event event) {
-        events.add(event);
-      }
-    });
+    watcher
+      .getEventListenable()
+      .addListener(
+        new EventListener() {
+          //@Override Java 5 compatibility
+          public void newEvent(Event event) {
+            events.add(event);
+          }
+        }
+      );
   }
 
   @After
@@ -87,7 +93,7 @@ public class ReconnectTest {
   }
 
   @Test
-  public void itReconnectsAfterRepeatedFailures()  {
+  public void itReconnectsAfterRepeatedFailures() {
     watcher.start();
     assertWatcherIsRespondingToEvents();
 
@@ -154,7 +160,10 @@ public class ReconnectTest {
         previousServer.close();
       }
 
-      TestingServer testingServer = new TestingServer(new InstanceSpec(sharedDataDirectory, -1, -1, -1, false, -1), true);
+      TestingServer testingServer = new TestingServer(
+        new InstanceSpec(sharedDataDirectory, -1, -1, -1, false, -1),
+        true
+      );
       testingServer.start();
 
       return testingServer;
@@ -167,7 +176,9 @@ public class ReconnectTest {
   }
 
   private TestingServer getCurrentServer() {
-    assertThat(servers.isEmpty()).withFailMessage("There are no active servers").isFalse();
+    assertThat(servers.isEmpty())
+      .withFailMessage("There are no active servers")
+      .isFalse();
     return servers.get(servers.size() - 1);
   }
 }

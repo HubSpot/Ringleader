@@ -2,6 +2,8 @@ package com.hubspot.ringleader.watcher;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.google.common.base.Supplier;
+import com.hubspot.ringleader.watcher.Event.Type;
 import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -11,7 +13,6 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
 import org.apache.curator.retry.ExponentialBackoffRetry;
@@ -23,10 +24,8 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import com.google.common.base.Supplier;
-import com.hubspot.ringleader.watcher.Event.Type;
-
 public class PersistentWatcherTest {
+
   private static final String PATH = "/test";
 
   private static TestingServer SERVER;
@@ -45,14 +44,14 @@ public class PersistentWatcherTest {
   public void setup() throws Exception {
     createData();
     curatorCounter = new AtomicInteger();
-    curatorSupplier = new Supplier<CuratorFramework>() {
-
-      //@Override Java 5 compatibility
-      public CuratorFramework get() {
-        curatorCounter.incrementAndGet();
-        return newCurator();
-      }
-    };
+    curatorSupplier =
+      new Supplier<CuratorFramework>() {
+        //@Override Java 5 compatibility
+        public CuratorFramework get() {
+          curatorCounter.incrementAndGet();
+          return newCurator();
+        }
+      };
 
     events = new CopyOnWriteArrayList<Event>();
     watcher = newWatcher(curatorSupplier);
@@ -83,7 +82,6 @@ public class PersistentWatcherTest {
   public void itReplacesBadCurator() {
     final AtomicBoolean exceptionThrown = new AtomicBoolean();
     Supplier<CuratorFramework> exceptionSupplier = new Supplier<CuratorFramework>() {
-
       //@Override Java 5 compatibility
       public CuratorFramework get() {
         if (!exceptionThrown.get()) {
@@ -152,7 +150,6 @@ public class PersistentWatcherTest {
   public void blockingWatcherBlocksUntilTheFirstEventIsSent() {
     final AtomicBoolean exceptionThrown = new AtomicBoolean();
     Supplier<CuratorFramework> delayedSupplier = new Supplier<CuratorFramework>() {
-
       //@Override Java 5 compatibility
       public CuratorFramework get() {
         if (!exceptionThrown.get()) {
@@ -181,17 +178,23 @@ public class PersistentWatcherTest {
 
   @Test
   public void itCleansUpAfterItself() throws Exception {
-    ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
-      //@Override Java 5 compatibility
-      public Thread newThread(Runnable r) {
-        Thread thread = Executors.defaultThreadFactory().newThread(r);
-        thread.setName("WatcherFactoryTestExecutor");
-        thread.setDaemon(true);
-        return thread;
+    ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor(
+      new ThreadFactory() {
+        //@Override Java 5 compatibility
+        public Thread newThread(Runnable r) {
+          Thread thread = Executors.defaultThreadFactory().newThread(r);
+          thread.setName("WatcherFactoryTestExecutor");
+          thread.setDaemon(true);
+          return thread;
+        }
       }
-    });
+    );
 
-    WatcherFactory factory = new WatcherFactory(curatorSupplier, executor, TimeUnit.MINUTES.toMillis(1));
+    WatcherFactory factory = new WatcherFactory(
+      curatorSupplier,
+      executor,
+      TimeUnit.MINUTES.toMillis(1)
+    );
     PersistentWatcher watcher1 = factory.dataWatcher(PATH);
     PersistentWatcher watcher2 = factory.dataWatcher(PATH);
     PersistentWatcher watcher3 = factory.dataWatcher(PATH);
@@ -218,29 +221,36 @@ public class PersistentWatcherTest {
     return watcher;
   }
 
-  private PersistentWatcher newBlockingWatcher(Supplier<CuratorFramework> curatorSupplier) {
-    PersistentWatcher watcher = new WatcherFactory(curatorSupplier).blockingDataWatcher(PATH);
+  private PersistentWatcher newBlockingWatcher(
+    Supplier<CuratorFramework> curatorSupplier
+  ) {
+    PersistentWatcher watcher = new WatcherFactory(curatorSupplier)
+      .blockingDataWatcher(PATH);
     addListener(watcher);
     return watcher;
   }
 
   private void addListener(PersistentWatcher watcher) {
-    watcher.getEventListenable().addListener(new EventListener() {
-
-      //@Override Java 5 compatibility
-      public void newEvent(Event event) {
-        events.add(event);
-      }
-    });
+    watcher
+      .getEventListenable()
+      .addListener(
+        new EventListener() {
+          //@Override Java 5 compatibility
+          public void newEvent(Event event) {
+            events.add(event);
+          }
+        }
+      );
   }
 
   private CuratorFramework newCurator() {
-    CuratorFramework curator = CuratorFrameworkFactory.builder()
-        .connectString(SERVER.getConnectString())
-        .sessionTimeoutMs(60000)
-        .connectionTimeoutMs(5000)
-        .retryPolicy(new ExponentialBackoffRetry(1000, 3))
-        .build();
+    CuratorFramework curator = CuratorFrameworkFactory
+      .builder()
+      .connectString(SERVER.getConnectString())
+      .sessionTimeoutMs(60000)
+      .connectionTimeoutMs(5000)
+      .retryPolicy(new ExponentialBackoffRetry(1000, 3))
+      .build();
 
     curator.start();
 

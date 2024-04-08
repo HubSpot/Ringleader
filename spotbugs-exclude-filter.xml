@@ -1,0 +1,7 @@
+<FindBugsFilter>
+    <Match>
+        <Class name="com.hubspot.ringleader.watcher.PersistentWatcher"/>
+        <Bug pattern="CT_CONSTRUCTOR_THROW"/>
+    </Match>
+</FindBugsFilter>
+

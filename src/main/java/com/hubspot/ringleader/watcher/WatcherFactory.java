@@ -1,5 +1,7 @@
 package com.hubspot.ringleader.watcher;
 
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Supplier;
 import java.lang.reflect.Field;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -11,7 +13,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
-
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.api.UnhandledErrorListener;
 import org.apache.curator.framework.imps.CuratorFrameworkState;
@@ -20,10 +21,8 @@ import org.apache.curator.framework.state.ConnectionStateListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Supplier;
-
 public class WatcherFactory {
+
   private static final Logger LOG = LoggerFactory.getLogger(WatcherFactory.class);
   private final Supplier<CuratorFramework> curatorSupplier;
 
@@ -42,9 +41,11 @@ public class WatcherFactory {
   }
 
   @VisibleForTesting
-  WatcherFactory(Supplier<CuratorFramework> curatorSupplier,
-                 ScheduledExecutorService executor,
-                 long replacementIntervalMillis) {
+  WatcherFactory(
+    Supplier<CuratorFramework> curatorSupplier,
+    ScheduledExecutorService executor,
+    long replacementIntervalMillis
+  ) {
     this.watcherLock = new Object();
     this.curatorSupplier = curatorSupplier;
     this.curatorReference = new AtomicReference<CuratorFramework>();
@@ -82,7 +83,6 @@ public class WatcherFactory {
       final CountDownLatch started = new CountDownLatch(1);
 
       PersistentWatcher watcher = new PersistentWatcher(this, path) {
-
         @Override
         public void start() {
           super.start();
@@ -94,13 +94,16 @@ public class WatcherFactory {
         }
       };
 
-      watcher.getEventListenable().addListener(new EventListener() {
-
-        //@Override Java 5 compatibility
-        public void newEvent(Event event) {
-          started.countDown();
-        }
-      });
+      watcher
+        .getEventListenable()
+        .addListener(
+          new EventListener() {
+            //@Override Java 5 compatibility
+            public void newEvent(Event event) {
+              started.countDown();
+            }
+          }
+        );
 
       watchers.put(watcher, true);
       return watcher;
@@ -141,27 +144,32 @@ public class WatcherFactory {
         long millisToWait = replacementIntervalMillis - age;
 
         replacementScheduled.set(true);
-        executor.schedule(new Runnable() {
-          //@Override Java 5 compatibility
-          public void run() {
-            replacementScheduled.set(false);
-            replaceCurator();
-          }
-        }, millisToWait, TimeUnit.MILLISECONDS);
+        executor.schedule(
+          new Runnable() {
+            //@Override Java 5 compatibility
+            public void run() {
+              replacementScheduled.set(false);
+              replaceCurator();
+            }
+          },
+          millisToWait,
+          TimeUnit.MILLISECONDS
+        );
       }
       return;
     }
 
     curatorTimestamp.set(System.currentTimeMillis());
 
-    executor.submit(new Runnable() {
-
-      //@Override Java 5 compatibility
-      public void run() {
-        CuratorFramework previous = curatorReference.getAndSet(createNewCurator());
-        cleanup(previous);
+    executor.submit(
+      new Runnable() {
+        //@Override Java 5 compatibility
+        public void run() {
+          CuratorFramework previous = curatorReference.getAndSet(createNewCurator());
+          cleanup(previous);
+        }
       }
-    });
+    );
   }
 
   private void startIfNecessary() {
@@ -178,38 +186,44 @@ public class WatcherFactory {
         curator.start();
       }
 
-      curator.getConnectionStateListenable().addListener(new ConnectionStateListener() {
-
-        //@Override Java 5 compatibility
-        public void stateChanged(CuratorFramework client, ConnectionState newState) {
-          switch (newState) {
-            case SUSPENDED:
-            case LOST:
-              LOG.info("Connection lost or suspended, replacing client");
-              replaceCurator();
-              break;
-            case CONNECTED:
-            case RECONNECTED:
-              for (PersistentWatcher watcher : watchers.keySet()) {
-                if (watcher.isStarted()) {
-                  watcher.fetchInExecutor();
-                }
+      curator
+        .getConnectionStateListenable()
+        .addListener(
+          new ConnectionStateListener() {
+            //@Override Java 5 compatibility
+            public void stateChanged(CuratorFramework client, ConnectionState newState) {
+              switch (newState) {
+                case SUSPENDED:
+                case LOST:
+                  LOG.info("Connection lost or suspended, replacing client");
+                  replaceCurator();
+                  break;
+                case CONNECTED:
+                case RECONNECTED:
+                  for (PersistentWatcher watcher : watchers.keySet()) {
+                    if (watcher.isStarted()) {
+                      watcher.fetchInExecutor();
+                    }
+                  }
+                  break;
+                default:
+                // make findbugs happy
               }
-              break;
-            default:
-              // make findbugs happy
+            }
           }
-        }
-      });
+        );
 
-      curator.getUnhandledErrorListenable().addListener(new UnhandledErrorListener() {
-
-        //@Override Java 5 compatibility
-        public void unhandledError(String message, Throwable e) {
-          LOG.error("Curator error, replacing client", e);
-          replaceCurator();
-        }
-      });
+      curator
+        .getUnhandledErrorListenable()
+        .addListener(
+          new UnhandledErrorListener() {
+            //@Override Java 5 compatibility
+            public void unhandledError(String message, Throwable e) {
+              LOG.error("Curator error, replacing client", e);
+              replaceCurator();
+            }
+          }
+        );
 
       return curator;
     } catch (Exception e) {
@@ -224,12 +238,14 @@ public class WatcherFactory {
       return;
     }
 
-    executor.submit(new Runnable() {
-      //@Override Java 5 compatibility
-      public void run() {
-        synchronousCleanup(curator);
+    executor.submit(
+      new Runnable() {
+        //@Override Java 5 compatibility
+        public void run() {
+          synchronousCleanup(curator);
+        }
       }
-    });
+    );
   }
 
   private void synchronousCleanup(final CuratorFramework curator) {
@@ -254,14 +270,16 @@ public class WatcherFactory {
   }
 
   private static ScheduledExecutorService newExecutor() {
-    return Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
-      //@Override Java 5 compatibility
-      public Thread newThread(Runnable r) {
-        Thread thread = Executors.defaultThreadFactory().newThread(r);
-        thread.setName("WatcherFactoryExecutor");
-        thread.setDaemon(true);
-        return thread;
+    return Executors.newSingleThreadScheduledExecutor(
+      new ThreadFactory() {
+        //@Override Java 5 compatibility
+        public Thread newThread(Runnable r) {
+          Thread thread = Executors.defaultThreadFactory().newThread(r);
+          thread.setName("WatcherFactoryExecutor");
+          thread.setDaemon(true);
+          return thread;
+        }
       }
-    });
+    );
   }
 }

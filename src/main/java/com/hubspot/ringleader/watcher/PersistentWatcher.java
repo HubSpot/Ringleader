@@ -1,5 +1,6 @@
 package com.hubspot.ringleader.watcher;
 
+import com.google.common.base.Supplier;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.concurrent.Executors;
@@ -8,11 +9,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.api.CuratorWatcher;
 import org.apache.curator.framework.listen.Listenable;
-import org.apache.curator.framework.listen.ListenerContainer;
 import org.apache.curator.framework.listen.StandardListenerManager;
 import org.apache.zookeeper.KeeperException.NoNodeException;
 import org.apache.zookeeper.Watcher.Event.EventType;
@@ -20,9 +19,8 @@ import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.base.Supplier;
-
 public class PersistentWatcher implements Closeable {
+
   private static final Logger LOG = LoggerFactory.getLogger(PersistentWatcher.class);
 
   private final WatcherFactory parent;
@@ -34,35 +32,35 @@ public class PersistentWatcher implements Closeable {
   private final CuratorWatcher watcher;
   private final StandardListenerManager<EventListener> listeners;
 
-  PersistentWatcher(WatcherFactory parent,
-                    final String path) {
+  PersistentWatcher(WatcherFactory parent, final String path) {
     this.parent = parent;
     this.lastVersion = new AtomicInteger(-1);
     this.started = new AtomicBoolean();
     this.closed = new AtomicBoolean();
     this.path = path;
-    this.executor = Executors.newSingleThreadScheduledExecutor(runnable -> {
-      Thread thread = Executors.defaultThreadFactory().newThread(runnable);
-      thread.setName("PersistentWatcher-" + path);
-      thread.setDaemon(true);
-      return thread;
-    });
+    this.executor =
+      Executors.newSingleThreadScheduledExecutor(runnable -> {
+        Thread thread = Executors.defaultThreadFactory().newThread(runnable);
+        thread.setName("PersistentWatcher-" + path);
+        thread.setDaemon(true);
+        return thread;
+      });
 
     // keep a reference to the watcher so we don't add duplicates (Curator uses a set)
-    this.watcher = event -> {
-      // Make sure the connection is open, otherwise we'll throw an error trying to submit to the executor
-      if (!closed.get()) {
-        if (event.getType() == EventType.NodeDeleted) {
-          lastVersion.set(-1);
-          notifyListeners(Event.nodeDeleted());
-        } else {
-          fetchInExecutor();
+    this.watcher =
+      event -> {
+        // Make sure the connection is open, otherwise we'll throw an error trying to submit to the executor
+        if (!closed.get()) {
+          if (event.getType() == EventType.NodeDeleted) {
+            lastVersion.set(-1);
+            notifyListeners(Event.nodeDeleted());
+          } else {
+            fetchInExecutor();
+          }
         }
-      }
-    };
+      };
     this.listeners = StandardListenerManager.standard();
   }
-
 
   public Supplier<CuratorFramework> getCurator() {
     return () -> parent.getCurator().get();
@@ -70,7 +68,7 @@ public class PersistentWatcher implements Closeable {
 
   /**
    * Use {@link PersistentWatcher#getCurator()} instead
-   *
+   * <p>
    * Mutating this value will replace the curator framework for all
    * persistent watchers created by the parent factory of this watcher
    */
@@ -83,20 +81,25 @@ public class PersistentWatcher implements Closeable {
     if (started.compareAndSet(false, true)) {
       fetchInExecutor();
 
-      executor.scheduleAtFixedRate(() -> {
-        try {
-          int versionBeforeFetch = lastVersion.get();
-          fetch();
+      executor.scheduleAtFixedRate(
+        () -> {
+          try {
+            int versionBeforeFetch = lastVersion.get();
+            fetch();
 
-          if (lastVersion.get() != versionBeforeFetch) {
-            LOG.warn("Detected a change that didn't raise an event; replacing curator");
+            if (lastVersion.get() != versionBeforeFetch) {
+              LOG.warn("Detected a change that didn't raise an event; replacing curator");
+              parent.replaceCurator();
+            }
+          } catch (Throwable t) {
+            LOG.error("Error fetching data, replacing client", t);
             parent.replaceCurator();
           }
-        } catch (Throwable t) {
-          LOG.error("Error fetching data, replacing client", t);
-          parent.replaceCurator();
-        }
-      }, 1, 1, TimeUnit.MINUTES);
+        },
+        1,
+        1,
+        TimeUnit.MINUTES
+      );
     }
   }
 
@@ -135,10 +138,11 @@ public class PersistentWatcher implements Closeable {
       }
 
       Stat stat = new Stat();
-      byte[] data = curator.getData()
-              .storingStatIn(stat)
-              .usingWatcher(watcher)
-              .forPath(path);
+      byte[] data = curator
+        .getData()
+        .storingStatIn(stat)
+        .usingWatcher(watcher)
+        .forPath(path);
 
       int version = stat.getVersion();
       int previousVersion = lastVersion.getAndSet(version);
